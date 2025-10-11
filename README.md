@@ -38,6 +38,7 @@ If file is omitted or '-' is given, read from stdin.
 Options:
   -h, --help        Show this help message and exit
   -w, --wrap N      Wrap output to width N (0 = no wrap)
+  -p                Pipe output through pager (PAGER env or 'less -R')
       --no-color     Disable ANSI colors
       --no-urls      Do not show URLs after links/images
 ```
