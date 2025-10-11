@@ -3,43 +3,109 @@
 #include <iostream>
 #include <sstream>
 
-static const std::string CSI = "\033[";
-static const std::string RESET = CSI + "0m";
+// ANSI escape codes
 
-static std::string style(const std::string& code) {
-    return CSI + code + "m";
+// CSI = Control Sequence Introducer
+static const std::string CSI = "\033[";
+
+// Bold and underline codes
+static const std::string BOLD = "1";
+static const std::string DIM = "2";
+static const std::string ITALIC = "3";
+static const std::string UNDERLINE = "4";
+
+// Colour codes
+static const std::string RED = "31";
+static const std::string GREEN = "32";
+static const std::string YELLOW = "33";
+static const std::string BLUE = "34";
+static const std::string MAGENTA = "35";
+static const std::string CYAN = "36";
+static const std::string WHITE = "37";
+static const std::string BRIGHT_BLACK = "90";
+static const std::string BRIGHT_RED = "91";
+static const std::string BRIGHT_GREEN = "92";
+static const std::string BRIGHT_YELLOW = "93";
+static const std::string BRIGHT_BLUE = "94";
+static const std::string BRIGHT_MAGENTA = "95";
+static const std::string BRIGHT_CYAN = "96";
+static const std::string BRIGHT_WHITE = "97";
+
+// Background colours
+static const std::string BG_RED = "41";
+static const std::string BG_GREEN = "42";
+static const std::string BG_YELLOW = "43";
+static const std::string BG_BLUE = "44";
+static const std::string BG_MAGENTA = "45";
+static const std::string BG_CYAN = "46";
+static const std::string BG_WHITE = "47";
+static const std::string BG_BRIGHT_BLACK = "100";
+static const std::string BG_BRIGHT_RED = "101";
+static const std::string BG_BRIGHT_GREEN = "102";
+static const std::string BG_BRIGHT_YELLOW = "103";
+static const std::string BG_BRIGHT_BLUE = "104";
+static const std::string BG_BRIGHT_MAGENTA = "105";
+static const std::string BG_BRIGHT_CYAN = "106";
+static const std::string BG_BRIGHT_WHITE = "107";
+
+static std::string textStyle() {
+    // no arguments --> reset
+    return CSI + "0m";
 }
 
-Renderer::Renderer(bool use_color_, bool show_urls_, int wrap_, bool inline_images_)
-    : use_color(use_color_), show_urls(show_urls_), wrap(wrap_), inline_images(inline_images_) {}
+template<typename... Args>
+static std::string textStyle(Args&&... args) {
+    std::vector<std::string> parts;
+    parts.reserve(sizeof...(Args));
+    // Fold expression to emplace each argument (works with std::string or string literals)
+    (parts.emplace_back(std::forward<Args>(args)), ...);
+
+    std::string joined;
+    for (size_t i = 0; i < parts.size(); ++i) {
+        if (i) joined += ";";
+        joined += parts[i];
+    }
+    return CSI + joined + "m";
+}
+
+static std::string textStyleReset() {
+    return textStyle();
+}
+
+Renderer::Renderer(bool useColor_, bool showUrls_, int wrap_)
+    : useColor(useColor_), showUrls(showUrls_), wrap(wrap_) {}
 
 void Renderer::render(const std::vector<std::string>& lines, std::ostream& out) {
     for (const auto& l : lines) {
-        process_line(l, out);
+        processLine(l, out);
     }
-    flush_paragraph(out);
+    flushParagraph(out);
 }
 
-void Renderer::process_line(const std::string& line, std::ostream& out) {
-    if (in_code_fence) {
-        if (is_fence_close(line)) {
-            in_code_fence = false;
+void Renderer::processLine(const std::string& line, std::ostream& out) {
+
+    // Inside code code block
+    if (inCodeBlock) {
+        if (isCodeBlockEnd(line)) {
+            inCodeBlock = false;
             out << "" << std::endl;
         } else {
-            if (use_color) out << style("90") << "│ " << RESET << style("90") << line << RESET << std::endl;
+            if (useColor) out << textStyle(GREEN) << "  " << line << textStyleReset() << std::endl;
             else out << "    " << line << std::endl;
         }
         return;
     }
 
-    if (is_fence_open(line)) {
-        in_code_fence = true;
+    // Code fence open
+    if (isCodeBlockStart(line)) {
+        inCodeBlock = true;
         out << std::endl;
         return;
     }
 
-    if (is_hr(line)) {
-        flush_paragraph(out);
+    // Horizontal rule
+    if (isHr(line)) {
+        flushParagraph(out);
         int width = wrap > 0 ? wrap : 80;
         int w = std::max(10, std::min(1000, width - 2));
         for (int i = 0; i < w; ++i) out << "─";
@@ -47,24 +113,25 @@ void Renderer::process_line(const std::string& line, std::ostream& out) {
         return;
     }
 
+    // Headings
     std::smatch m;
     std::regex hregex(R"(^(#{1,6})\s+(.*)$)");
     if (std::regex_match(line, m, hregex)) {
-        flush_paragraph(out);
+        flushParagraph(out);
         int level = (int)m[1].length();
-        std::string text = apply_inline((std::string)m[2]);
-        out << style_heading(level, text) << std::endl << std::endl;
+        std::string text = applyInline((std::string)m[2]);
+        out << styleHeading(level, text) << std::endl << std::endl;
         return;
     }
 
     // Blockquote
     if (!line.empty() && std::regex_search(line, std::regex(R"(^\s*>)")) ) {
-        flush_paragraph(out);
+        flushParagraph(out);
         std::string content = line;
         // strip leading >
         while (!content.empty() && (content.front() == '>' || isspace((unsigned char)content.front()))) content.erase(0,1);
-        std::string body = apply_inline(content);
-        if (use_color) out << style("90") << "│ " << RESET << style("3") << body << RESET << std::endl;
+        std::string body = applyInline(content);
+        if (useColor) out << textStyle(BRIGHT_BLACK) << "│ " << textStyleReset() << textStyle(ITALIC) << body << textStyleReset() << std::endl;
         else out << "| " << body << std::endl;
         return;
     }
@@ -72,24 +139,24 @@ void Renderer::process_line(const std::string& line, std::ostream& out) {
     // Lists
     std::regex lreg(R"(^\s*([-+*]|\d+\.)\s+(.*)$)");
     if (std::regex_match(line, m, lreg)) {
-        flush_paragraph(out);
+        flushParagraph(out);
         std::string bullet = (std::string)m[1];
-        std::string content = apply_inline((std::string)m[2]);
+        std::string content = applyInline((std::string)m[2]);
         std::string sym = (bullet == "-" || bullet == "+" || bullet == "*") ? "•" : bullet;
-        if (use_color) out << style("94") << sym << RESET << " " << content << std::endl;
+        if (useColor) out << textStyle(BRIGHT_BLUE) << sym << textStyleReset() << " " << content << std::endl;
         else out << sym << " " << content << std::endl;
         return;
     }
 
+    // Tables - Just print as-is for now
     if (line.find("|") != std::string::npos && std::regex_match(line, std::regex(R"(^\s*\|.*\|\s*$)"))) {
-        // Very simple table handling: just print as-is for now
-        flush_paragraph(out);
+        flushParagraph(out);
         out << line << std::endl;
         return;
     }
 
     if (line.find_first_not_of(" \t\r\n") == std::string::npos) {
-        flush_paragraph(out);
+        flushParagraph(out);
         out << std::endl;
         return;
     }
@@ -97,7 +164,7 @@ void Renderer::process_line(const std::string& line, std::ostream& out) {
     paragraph.push_back(line);
 }
 
-void Renderer::flush_paragraph(std::ostream& out) {
+void Renderer::flushParagraph(std::ostream& out) {
     if (paragraph.empty()) return;
     std::string text;
     for (size_t i = 0; i < paragraph.size(); ++i) {
@@ -105,11 +172,12 @@ void Renderer::flush_paragraph(std::ostream& out) {
         text += paragraph[i];
     }
     paragraph.clear();
-    text = apply_inline(text);
+    text = applyInline(text);
     out << text << std::endl;
 }
 
-bool Renderer::is_fence_open(const std::string& line) {
+// Check if line is a code block start (fence)
+bool Renderer::isCodeBlockStart(const std::string& line) {
     // Match a sequence of 3 or more backticks or tildes, optionally followed by a language id.
     // Capture the fence chars so we can remember which character and how many were used.
     std::smatch m;
@@ -129,29 +197,31 @@ bool Renderer::is_fence_open(const std::string& line) {
                 if (ch == c) count++;
                 else break;
             }
-            code_fence_char = c;
-            code_fence_len = count;
+            codeFenceChar = c;
+            codeFenceLen = count;
             return true;
         }
     }
     return false;
 }
 
-bool Renderer::is_fence_close(const std::string& line) {
-    if (code_fence_char == '\0' || code_fence_len <= 0) return false;
+// Check if line is a code block end (matching fence)
+bool Renderer::isCodeBlockEnd(const std::string& line) {
+    if (codeFenceChar == '\0' || codeFenceLen <= 0) return false;
     // Trim leading whitespace, then count same-char run at start; valid close if run char matches and length >= opener length,
     // and the rest of the line is only whitespace.
     size_t i = 0;
     // skip leading whitespace
     while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) ++i;
     int run = 0;
-    while (i < line.size() && line[i] == code_fence_char) { ++run; ++i; }
+    while (i < line.size() && line[i] == codeFenceChar) { ++run; ++i; }
     // rest must be only whitespace
     while (i < line.size()) { if (line[i] != ' ' && line[i] != '\t') return false; ++i; }
-    return run >= code_fence_len && run >= 3;
+    return run >= codeFenceLen && run >= 3;
 }
 
-bool Renderer::is_hr(const std::string& line) {
+// Check if line is a horizontal rule (---, ***, ___, etc)
+bool Renderer::isHr(const std::string& line) {
     std::string s;
     for (char c : line) if (!isspace((unsigned char)c)) s.push_back(c);
     if (s.size() >= 3) {
@@ -162,48 +232,56 @@ bool Renderer::is_hr(const std::string& line) {
     return false;
 }
 
-std::string Renderer::style_heading(int level, const std::string& text) {
-    if (!use_color) return std::string(level, '#') + " " + text;
-    if (level == 1) return style("96;1;4") + text + RESET;
-    if (level == 2) return style("96;1") + text + RESET;
-    if (level == 3) return style("93;1") + text + RESET;
-    if (level == 4) return style("95") + text + RESET;
-    return style("36") + text + RESET;
+// Style a heading line based on its level
+std::string Renderer::styleHeading(int level, const std::string& text) {
+    if (!useColor) return std::string(level, '#') + " " + text;
+    if (level == 1) return textStyle(BRIGHT_CYAN, BOLD, UNDERLINE) + text + textStyleReset();
+    if (level == 2) return textStyle(BRIGHT_CYAN, BOLD) + text + textStyleReset();
+    if (level == 3) return textStyle(BRIGHT_YELLOW, BOLD) + text + textStyleReset();
+    if (level == 4) return textStyle(BRIGHT_MAGENTA) + text + textStyleReset();
+    return textStyle("36") + text + textStyleReset();
 }
 
-std::string Renderer::apply_inline(const std::string& text) {
+// Apply inline styles and transformations to a text line
+std::string Renderer::applyInline(const std::string& text) {
     std::string s = text;
 
     // images: ![alt](url) -> fallback text
     s = std::regex_replace(s,
         std::regex(R"(!\[([^\]]*)\]\(([^\)]+)\))"),
-        (use_color?"\033[35;1m[Image: $1]\033[0m \033[90m<$2>\033[0m":"[Image: $1] <$2>")
+        (useColor?"\033[35;1m[Image: $1]\033[0m \033[90m<$2>\033[0m":"[Image: $1] <$2>")
     );
 
     // links: [text](url)
     s = std::regex_replace(s,
         std::regex(R"(\[([^\]]+)\]\(([^\)]+)\))"),
-        (use_color?"\033[34;4m$1\033[0m \033[90m<$2>\033[0m":"$1 <$2>")
+        (useColor?"\033[34;4m$1\033[0m \033[90m<$2>\033[0m":"$1 <$2>")
     );
 
     // bold **text** or __text__
     s = std::regex_replace(s,
         std::regex(R"(\*\*(.+?)\*\*)"),
-        use_color? (style("1") + "$1" + RESET) : "$1"
+        useColor? (textStyle(BOLD) + "$1" + textStyleReset()) : "$1"
     );
     s = std::regex_replace(s,
         std::regex(R"(__([^_]+)__)"),
-        use_color? (style("1") + "$1" + RESET) : "$1"
+        useColor? (textStyle(BOLD) + "$1" + textStyleReset()) : "$1"
     );
 
     // italic *text* or _text_ (avoid lookaround; match single-star or single-underscore runs)
     s = std::regex_replace(s,
         std::regex(R"(\*([^*]+)\*)"),
-        use_color? (style("3") + "$1" + RESET) : "$1"
+        useColor? (textStyle(ITALIC) + "$1" + textStyleReset()) : "$1"
     );
     s = std::regex_replace(s,
         std::regex(R"(_([^_]+)_)"), 
-        use_color? (style("3") + "$1" + RESET) : "$1"
+        useColor? (textStyle(ITALIC) + "$1" + textStyleReset()) : "$1"
+    );
+
+    // inline code `code`
+    s = std::regex_replace(s,
+        std::regex(R"(`([^`]+)`)"),
+        useColor? (textStyle(BRIGHT_WHITE, BG_BRIGHT_BLACK) + "$1" + textStyleReset()) : "$1"
     );
 
     return s;

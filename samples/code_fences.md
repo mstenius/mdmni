@@ -28,4 +28,3 @@ A backtick opener with 3 ticks and a longer closing run (4 ticks) is also valid 
 ```text
 This fence opens with 3 backticks...
 ````
-
