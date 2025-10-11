@@ -3,6 +3,10 @@
 
 This repository contains `mdmni`, a small MD file viewer implemmented in C++.
 
+This is not a complete implementation, it focuses only on the basic primitives.
+
+I created it because I wanted a simple viewer that could be easily built on many systems without the need of all the bells and whistles of Python, Ruby, different package managers etc. A reasonably modern C++ compiler and CMake should be enough.
+
 ## Build
 
 Build (from project root):
