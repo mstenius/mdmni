@@ -12,22 +12,22 @@ int main(int argc, char** argv) {
     std::string file;
     int wrap = 0;
     bool paging = false;
-        bool noColor = false;
-        bool noUrls = false;
-        bool showHelp = false;
+    bool noColor = false;
+    bool noUrls = false;
+    bool showHelp = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "-w" || a == "--wrap") {
             if (i+1 < argc) { wrap = std::atoi(argv[++i]); }
         } else if (a == "-h" || a == "--help") {
-                showHelp = true;
+            showHelp = true;
         } else if (a == "-p") {
             paging = true;
         } else if (a == "--no-color") {
-                noColor = true;
+            noColor = true;
         } else if (a == "--no-urls") {
-                noUrls = true;
+            noUrls = true;
         } else if (a == "-" ) {
             file = "-";
         } else if (a.size() && a[0] == '-') {
@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
         }
     }
 
-        if (showHelp) {
+    if (showHelp) {
         std::cout << "mdmni - minimal markdown pager\n\n";
         std::cout << "Usage: mdmni [OPTIONS] [file]\n";
         std::cout << "If file is omitted or '-' is given, read from stdin.\n\n";
@@ -74,7 +74,7 @@ int main(int argc, char** argv) {
         while (std::getline(in, line)) lines.push_back(line);
     }
 
-        Renderer r(!noColor, !noUrls, wrap);
+    Renderer r(!noColor, !noUrls, wrap);
 
     if (paging) {
         // Render to a buffer then feed it to the pager (PAGER env or less -R).
