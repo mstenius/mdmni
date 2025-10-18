@@ -3,7 +3,9 @@
 #include <iostream>
 #include <sstream>
 
+//
 // ANSI escape codes
+//
 
 // CSI = Control Sequence Introducer
 static const std::string CSI = "\033[";
@@ -14,7 +16,7 @@ static const std::string DIM = "2";
 static const std::string ITALIC = "3";
 static const std::string UNDERLINE = "4";
 
-// Colour codes
+// Color codes
 static const std::string RED = "31";
 static const std::string GREEN = "32";
 static const std::string YELLOW = "33";
@@ -49,7 +51,6 @@ static const std::string BG_BRIGHT_CYAN = "106";
 static const std::string BG_BRIGHT_WHITE = "107";
 
 static std::string textStyle() {
-    // no arguments --> reset
     return CSI + "0m";
 }
 
@@ -72,6 +73,8 @@ static std::string textStyleReset() {
     return textStyle();
 }
 
+namespace mdmni {
+
 Renderer::Renderer(bool useColor_, bool showUrls_, int wrap_)
     : useColor(useColor_), showUrls(showUrls_), wrap(wrap_) {}
 
@@ -84,10 +87,10 @@ void Renderer::render(const std::vector<std::string>& lines, std::ostream& out) 
 
 void Renderer::processLine(const std::string& line, std::ostream& out) {
 
-    // Inside code code block
-    if (inCodeBlock) {
-        if (isCodeBlockEnd(line)) {
-            inCodeBlock = false;
+    // Inside code fences
+    if (insideCodeFences) {
+        if (isCodeFenceEnd(line)) {
+            insideCodeFences = false;
             out << "" << std::endl;
         } else {
             if (useColor) out << textStyle(GREEN) << "  " << line << textStyleReset() << std::endl;
@@ -97,8 +100,8 @@ void Renderer::processLine(const std::string& line, std::ostream& out) {
     }
 
     // Code fence open
-    if (isCodeBlockStart(line)) {
-        inCodeBlock = true;
+    if (isCodeFenceStart(line)) {
+        insideCodeFences = true;
         out << std::endl;
         return;
     }
@@ -120,7 +123,7 @@ void Renderer::processLine(const std::string& line, std::ostream& out) {
         flushParagraph(out);
         int level = (int)m[1].length();
         std::string text = applyInline((std::string)m[2]);
-        out << styleHeading(level, text) << std::endl << std::endl;
+        out << std::endl << styleHeading(level, text) << std::endl;
         return;
     }
 
@@ -177,7 +180,7 @@ void Renderer::flushParagraph(std::ostream& out) {
 }
 
 // Check if line is a code block start (fence)
-bool Renderer::isCodeBlockStart(const std::string& line) {
+bool Renderer::isCodeFenceStart(const std::string& line) {
     // Match a sequence of 3 or more backticks or tildes, optionally followed by a language id.
     // Capture the fence chars so we can remember which character and how many were used.
     std::smatch m;
@@ -206,7 +209,7 @@ bool Renderer::isCodeBlockStart(const std::string& line) {
 }
 
 // Check if line is a code block end (matching fence)
-bool Renderer::isCodeBlockEnd(const std::string& line) {
+bool Renderer::isCodeFenceEnd(const std::string& line) {
     if (codeFenceChar == '\0' || codeFenceLen <= 0) return false;
     // Trim leading whitespace, then count same-char run at start; valid close if run char matches and length >= opener length,
     // and the rest of the line is only whitespace.
@@ -249,13 +252,19 @@ std::string Renderer::applyInline(const std::string& text) {
     // images: ![alt](url) -> fallback text
     s = std::regex_replace(s,
         std::regex(R"(!\[([^\]]*)\]\(([^\)]+)\))"),
-        (useColor?"\033[35;1m[Image: $1]\033[0m \033[90m<$2>\033[0m":"[Image: $1] <$2>")
+        (useColor
+            ? (textStyle(MAGENTA, BOLD) + std::string("[Image: $1]") + textStyleReset()
+               + " " + textStyle(BRIGHT_BLACK) + std::string("<$2>") + textStyleReset())
+            : std::string("[Image: $1] <$2>"))
     );
 
     // links: [text](url)
     s = std::regex_replace(s,
         std::regex(R"(\[([^\]]+)\]\(([^\)]+)\))"),
-        (useColor?"\033[34;4m$1\033[0m \033[90m<$2>\033[0m":"$1 <$2>")
+        (useColor
+            ? (textStyle(BLUE, UNDERLINE) + std::string("$1") + textStyleReset()
+               + " " + textStyle(BRIGHT_BLACK) + std::string("<$2>") + textStyleReset())
+            : std::string("$1 <$2>"))
     );
 
     // bold **text** or __text__
@@ -286,3 +295,5 @@ std::string Renderer::applyInline(const std::string& text) {
 
     return s;
 }
+
+} // namespace mdmni

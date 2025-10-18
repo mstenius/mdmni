@@ -8,20 +8,44 @@
 #include <cstdio>
 #include <cstdlib>
 
+#define BASENAME_OF(path) \
+    ((path) ? \
+        (std::strrchr((path), '/') ? std::strrchr((path), '/') + 1 : \
+         (std::strrchr((path), '\\') ? std::strrchr((path), '\\') + 1 : (path))) \
+     : "")
+
+void usageExit(const std::string& progName, int code=0) {
+    std::cout << progName << " - minimal markdown pager\n\n";
+    std::cout << "Usage: " << progName << " [OPTIONS] [file]\n";
+    std::cout << "If file is omitted or '-' is given, read from stdin.\n\n";
+    std::cout << "Options:\n";
+    std::cout << "  -h, --help        Show this help message and exit\n";
+    std::cout << "  -w, --wrap N      Wrap output to width N (0 = no wrap)\n";
+    std::cout << "  -p                Pipe output through pager (PAGER env or 'less -R')\n";
+    std::cout << "      --no-color    Disable ANSI colors\n";
+    std::cout << "      --no-urls     Do not show URLs after links/images\n";
+    std::exit(code);
+}
+
 int main(int argc, char** argv) {
+    std::string progName = BASENAME_OF(argv[0]);
     std::string file;
     int wrap = 0;
     bool paging = false;
     bool noColor = false;
     bool noUrls = false;
-    bool showHelp = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "-w" || a == "--wrap") {
-            if (i+1 < argc) { wrap = std::atoi(argv[++i]); }
+            if (argc > i + 1) {
+                wrap = std::atoi(argv[++i]);
+            }
+            else {
+                usageExit(progName, -1);
+            }
         } else if (a == "-h" || a == "--help") {
-            showHelp = true;
+            usageExit(progName);
         } else if (a == "-p") {
             paging = true;
         } else if (a == "--no-color") {
@@ -30,24 +54,9 @@ int main(int argc, char** argv) {
             noUrls = true;
         } else if (a == "-" ) {
             file = "-";
-        } else if (a.size() && a[0] == '-') {
-            // unknown, ignore
         } else {
             file = a;
         }
-    }
-
-    if (showHelp) {
-        std::cout << "mdmni - minimal markdown pager\n\n";
-        std::cout << "Usage: mdmni [OPTIONS] [file]\n";
-        std::cout << "If file is omitted or '-' is given, read from stdin.\n\n";
-        std::cout << "Options:\n";
-        std::cout << "  -h, --help        Show this help message and exit\n";
-        std::cout << "  -w, --wrap N      Wrap output to width N (0 = no wrap)\n";
-        std::cout << "  -p                Pipe output through pager (PAGER env or 'less -R')\n";
-        std::cout << "      --no-color     Disable ANSI colors\n";
-        std::cout << "      --no-urls      Do not show URLs after links/images\n";
-        return 0;
     }
 
     // If invoked via a symlink named 'mdless', always enable paging.
@@ -67,14 +76,14 @@ int main(int argc, char** argv) {
     } else {
         std::ifstream in(file);
         if (!in) {
-        std::cerr << "mdpp: file not found: " << file << std::endl;
+            std::cerr << "mdmni: file not found: " << file << std::endl;
             return 2;
         }
         std::string line;
         while (std::getline(in, line)) lines.push_back(line);
     }
 
-    Renderer r(!noColor, !noUrls, wrap);
+    mdmni::Renderer r(!noColor, !noUrls, wrap);
 
     if (paging) {
         // Render to a buffer then feed it to the pager (PAGER env or less -R).
