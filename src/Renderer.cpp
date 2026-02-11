@@ -117,8 +117,8 @@ void Renderer::processLine(const std::string& line, std::ostream& out) {
     }
 
     // Headings
+    static const std::regex hregex(R"(^(#{1,6})\s+(.*)$)");
     std::smatch m;
-    std::regex hregex(R"(^(#{1,6})\s+(.*)$)");
     if (std::regex_match(line, m, hregex)) {
         flushParagraph(out);
         int level = (int)m[1].length();
@@ -128,7 +128,8 @@ void Renderer::processLine(const std::string& line, std::ostream& out) {
     }
 
     // Blockquote
-    if (!line.empty() && std::regex_search(line, std::regex(R"(^\s*>)")) ) {
+    static const std::regex bq_regex(R"(^\s*>)");
+    if (!line.empty() && std::regex_search(line, bq_regex)) {
         flushParagraph(out);
         std::string content = line;
         // strip leading >
@@ -140,7 +141,7 @@ void Renderer::processLine(const std::string& line, std::ostream& out) {
     }
 
     // Lists
-    std::regex lreg(R"(^\s*([-+*]|\d+\.)\s+(.*)$)");
+    static const std::regex lreg(R"(^\s*([-+*]|\d+\.)\s+(.*)$)");
     if (std::regex_match(line, m, lreg)) {
         flushParagraph(out);
         std::string bullet = (std::string)m[1];
@@ -152,7 +153,8 @@ void Renderer::processLine(const std::string& line, std::ostream& out) {
     }
 
     // Tables - Just print as-is for now
-    if (line.find("|") != std::string::npos && std::regex_match(line, std::regex(R"(^\s*\|.*\|\s*$)"))) {
+    static const std::regex table_regex(R"(^\s*\|.*\|\s*$)");
+    if (line.find("|") != std::string::npos && std::regex_match(line, table_regex)) {
         flushParagraph(out);
         out << line << std::endl;
         return;
@@ -183,8 +185,8 @@ void Renderer::flushParagraph(std::ostream& out) {
 bool Renderer::isCodeFenceStart(const std::string& line) {
     // Match a sequence of 3 or more backticks or tildes, optionally followed by a language id.
     // Capture the fence chars so we can remember which character and how many were used.
+    static const std::regex open_re(R"(^\s*([`~])\1{2,}[\t ]*[^`~]*\s*$)");
     std::smatch m;
-    std::regex open_re(R"(^\s*([`~])\1{2,}[\t ]*[^`~]*\s*$)");
     if (std::regex_match(line, m, open_re)) {
         // m[0] is full match; extract the leading fence run from the start of the trimmed line
         std::string s = line;
@@ -249,47 +251,56 @@ std::string Renderer::styleHeading(int level, const std::string& text) {
 std::string Renderer::applyInline(const std::string& text) {
     std::string s = text;
 
+    static const std::regex img_re(R"(!\[([^\]]*)\]\(([^\)]+)\))");
+    static const std::regex link_re(R"(\[([^\]]+)\]\(([^\)]+)\))");
+    static const std::regex bold_star_re(R"(\*\*(.+?)\*\*)");
+    static const std::regex bold_under_re(R"(__([^_]+)__)");
+    static const std::regex italic_star_re(R"(\*([^*]+)\*)");
+    static const std::regex italic_under_re(R"(_([^_]+)_)");
+
     // images: ![alt](url) -> fallback text
-    s = std::regex_replace(s,
-        std::regex(R"(!\[([^\]]*)\]\(([^\)]+)\))"),
-        (useColor
-            ? (textStyle(MAGENTA, BOLD) + std::string("[Image: $1]") + textStyleReset()
-               + " " + textStyle(BRIGHT_BLACK) + std::string("<$2>") + textStyleReset())
-            : std::string("[Image: $1] <$2>"))
+    s = std::regex_replace(s, img_re,
+        showUrls
+            ? (useColor
+                ? (textStyle(MAGENTA, BOLD) + std::string("[Image: $1]") + textStyleReset()
+                   + " " + textStyle(BRIGHT_BLACK) + std::string("<$2>") + textStyleReset())
+                : std::string("[Image: $1] <$2>"))
+            : (useColor
+                ? (textStyle(MAGENTA, BOLD) + std::string("[Image: $1]") + textStyleReset())
+                : std::string("[Image: $1]"))
     );
 
     // links: [text](url)
-    s = std::regex_replace(s,
-        std::regex(R"(\[([^\]]+)\]\(([^\)]+)\))"),
-        (useColor
-            ? (textStyle(BLUE, UNDERLINE) + std::string("$1") + textStyleReset()
-               + " " + textStyle(BRIGHT_BLACK) + std::string("<$2>") + textStyleReset())
-            : std::string("$1 <$2>"))
+    s = std::regex_replace(s, link_re,
+        showUrls
+            ? (useColor
+                ? (textStyle(BLUE, UNDERLINE) + std::string("$1") + textStyleReset()
+                   + " " + textStyle(BRIGHT_BLACK) + std::string("<$2>") + textStyleReset())
+                : std::string("$1 <$2>"))
+            : (useColor
+                ? (textStyle(BLUE, UNDERLINE) + std::string("$1") + textStyleReset())
+                : std::string("$1"))
     );
 
     // bold **text** or __text__
-    s = std::regex_replace(s,
-        std::regex(R"(\*\*(.+?)\*\*)"),
+    s = std::regex_replace(s, bold_star_re,
         useColor? (textStyle(BOLD) + "$1" + textStyleReset()) : "$1"
     );
-    s = std::regex_replace(s,
-        std::regex(R"(__([^_]+)__)"),
+    s = std::regex_replace(s, bold_under_re,
         useColor? (textStyle(BOLD) + "$1" + textStyleReset()) : "$1"
     );
 
     // italic *text* or _text_ (avoid lookaround; match single-star or single-underscore runs)
-    s = std::regex_replace(s,
-        std::regex(R"(\*([^*]+)\*)"),
+    s = std::regex_replace(s, italic_star_re,
         useColor? (textStyle(ITALIC) + "$1" + textStyleReset()) : "$1"
     );
-    s = std::regex_replace(s,
-        std::regex(R"(_([^_]+)_)"), 
+    s = std::regex_replace(s, italic_under_re,
         useColor? (textStyle(ITALIC) + "$1" + textStyleReset()) : "$1"
     );
 
     // inline code `code`
-    s = std::regex_replace(s,
-        std::regex(R"(`([^`]+)`)"),
+    static const std::regex code_re(R"(`([^`]+)`)");
+    s = std::regex_replace(s, code_re,
         useColor? (textStyle(BRIGHT_WHITE, BG_BRIGHT_BLACK) + "$1" + textStyleReset()) : "$1"
     );
 
