@@ -20,9 +20,11 @@ private:
     char codeFenceChar = '\0';
     int codeFenceLen = 0;
     std::vector<std::string> paragraph;
+    std::vector<std::string> tableBuffer;
 
     void processLine(const std::string& line, std::ostream& out);
     void flushParagraph(std::ostream& out);
+    void flushTable(std::ostream& out);
     bool isCodeFenceStart(const std::string& line);
     bool isCodeFenceEnd(const std::string& line);
     bool isHr(const std::string& line);

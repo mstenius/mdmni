@@ -1,4 +1,5 @@
 #include "Renderer.h"
+#include <algorithm>
 #include <regex>
 #include <iostream>
 #include <sstream>
@@ -152,13 +153,16 @@ void Renderer::processLine(const std::string& line, std::ostream& out) {
         return;
     }
 
-    // Tables - Just print as-is for now
+    // Tables - buffer rows for aligned rendering
     static const std::regex table_regex(R"(^\s*\|.*\|\s*$)");
     if (line.find("|") != std::string::npos && std::regex_match(line, table_regex)) {
-        flushParagraph(out);
-        out << line << std::endl;
+        if (tableBuffer.empty()) flushParagraph(out);
+        tableBuffer.push_back(line);
         return;
     }
+
+    // Non-table line — flush any buffered table first
+    flushTable(out);
 
     if (line.find_first_not_of(" \t\r\n") == std::string::npos) {
         flushParagraph(out);
@@ -169,7 +173,9 @@ void Renderer::processLine(const std::string& line, std::ostream& out) {
     paragraph.push_back(line);
 }
 
+// Flush the current paragraph buffer, applying inline styles and printing as a single line
 void Renderer::flushParagraph(std::ostream& out) {
+    flushTable(out);
     if (paragraph.empty()) return;
     std::string text;
     for (size_t i = 0; i < paragraph.size(); ++i) {
@@ -179,6 +185,118 @@ void Renderer::flushParagraph(std::ostream& out) {
     paragraph.clear();
     text = applyInline(text);
     out << text << std::endl;
+}
+
+// Count UTF-8 code points (each counts as one terminal column for BMP chars)
+static size_t utf8Columns(const std::string& s) {
+    size_t n = 0;
+    for (unsigned char c : s)
+        if ((c & 0xC0) != 0x80) ++n;  // skip continuation bytes
+    return n;
+}
+
+// Return the visible terminal column width of a string, ignoring ANSI escape sequences
+static size_t visualWidth(const std::string& s) {
+    static const std::regex ansi_re("\033\\[[0-9;]*m");
+    return utf8Columns(std::regex_replace(s, ansi_re, ""));
+}
+
+// Split a markdown table row into trimmed cell strings, respecting \| escapes
+static std::vector<std::string> splitTableRow(const std::string& line) {
+    std::vector<std::string> cells;
+    size_t start = line.find('|');
+    size_t end   = line.rfind('|');
+    if (start == std::string::npos || start == end) return cells;
+
+    std::string current;
+    for (size_t i = start + 1; i < end; ++i) {
+        if (line[i] == '\\' && i + 1 < end && line[i + 1] == '|') {
+            current += '|';
+            ++i;
+        } else if (line[i] == '|') {
+            size_t s = current.find_first_not_of(" \t");
+            size_t e = current.find_last_not_of(" \t");
+            cells.push_back(s == std::string::npos ? "" : current.substr(s, e - s + 1));
+            current.clear();
+        } else {
+            current += line[i];
+        }
+    }
+    size_t s = current.find_first_not_of(" \t");
+    size_t e = current.find_last_not_of(" \t");
+    cells.push_back(s == std::string::npos ? "" : current.substr(s, e - s + 1));
+    return cells;
+}
+
+// Return true if the line is a table separator row (|---|:---:|...|)
+static bool isTableSeparatorRow(const std::string& line) {
+    for (char c : line)
+        if (c != '-' && c != ':' && c != '|' && c != ' ' && c != '\t') return false;
+    return line.find('-') != std::string::npos;
+}
+
+// Flush buffered table rows with aligned column widths
+void Renderer::flushTable(std::ostream& out) {
+    if (tableBuffer.empty()) return;
+
+    std::vector<std::vector<std::string>> rawRows;
+    std::vector<bool> sepFlags;
+    for (const auto& line : tableBuffer) {
+        sepFlags.push_back(isTableSeparatorRow(line));
+        rawRows.push_back(splitTableRow(line));
+    }
+
+    size_t numCols = 0;
+    for (const auto& row : rawRows) numCols = std::max(numCols, row.size());
+    if (numCols == 0) { tableBuffer.clear(); return; }
+
+    // Apply inline styles to data rows and measure column widths
+    std::vector<std::vector<std::string>> styledRows(rawRows.size(), std::vector<std::string>(numCols, ""));
+    std::vector<size_t> colWidths(numCols, 1);
+    for (size_t i = 0; i < rawRows.size(); ++i) {
+        if (sepFlags[i]) continue;
+        for (size_t j = 0; j < rawRows[i].size(); ++j) {
+            styledRows[i][j] = applyInline(rawRows[i][j]);
+            colWidths[j] = std::max(colWidths[j], visualWidth(styledRows[i][j]));
+        }
+    }
+
+    bool hasSep = std::any_of(sepFlags.begin(), sepFlags.end(), [](bool b){ return b; });
+
+    auto printBorder = [&](const char* left, const char* mid, const char* right, const char* fill) {
+        out << left;
+        for (size_t j = 0; j < numCols; ++j) {
+            for (size_t k = 0; k < colWidths[j] + 2; ++k) out << fill;
+            out << (j + 1 < numCols ? mid : right);
+        }
+        out << "\n";
+    };
+
+    printBorder("┌", "┬", "┐", "─");
+
+    bool pastSep = false;
+    for (size_t i = 0; i < rawRows.size(); ++i) {
+        if (sepFlags[i]) {
+            printBorder("├", "┼", "┤", "─");
+            pastSep = true;
+            continue;
+        }
+        bool isHeader = hasSep && !pastSep;
+        out << "│";
+        for (size_t j = 0; j < numCols; ++j) {
+            const std::string& cell = styledRows[i][j];
+            size_t pad = colWidths[j] - visualWidth(cell);
+            out << " ";
+            if (isHeader && useColor) out << textStyle(BOLD);
+            out << cell;
+            if (isHeader && useColor) out << textStyleReset();
+            out << std::string(pad, ' ') << " │";
+        }
+        out << "\n";
+    }
+
+    printBorder("└", "┴", "┘", "─");
+    tableBuffer.clear();
 }
 
 // Check if line is a code block start (fence)
