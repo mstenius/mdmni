@@ -5,14 +5,23 @@
 #include <string>
 #include <cstring>
 #include <sstream>
-#include <cstdio>
 #include <cstdlib>
+#include <unistd.h>
+#include <sys/wait.h>
 
 #define BASENAME_OF(path) \
     ((path) ? \
         (std::strrchr((path), '/') ? std::strrchr((path), '/') + 1 : \
          (std::strrchr((path), '\\') ? std::strrchr((path), '\\') + 1 : (path))) \
      : "")
+
+static std::vector<std::string> splitArgs(const std::string& s) {
+    std::vector<std::string> result;
+    std::istringstream iss(s);
+    std::string token;
+    while (iss >> token) result.push_back(token);
+    return result;
+}
 
 void usageExit(const std::string& progName, int code=0) {
     std::cout << progName << " - minimal markdown pager\n\n";
@@ -93,10 +102,43 @@ int main(int argc, char** argv) {
 
         const char* pager_env = std::getenv("PAGER");
         std::string pager = pager_env && pager_env[0] ? pager_env : "less -R";
-        FILE* p = popen(pager.c_str(), "w");
-        if (p) {
-            fwrite(out.data(), 1, out.size(), p);
-            pclose(p);
+
+        auto args = splitArgs(pager);
+        if (args.empty()) args = {"less", "-R"};
+
+        std::vector<char*> execArgs;
+        for (auto& a : args) execArgs.push_back(a.data());
+        execArgs.push_back(nullptr);
+
+        int fds[2];
+        if (pipe(fds) == 0) {
+            pid_t pid = fork();
+            if (pid == 0) {
+                // child: replace stdin with read end of pipe, then exec pager
+                close(fds[1]);
+                dup2(fds[0], STDIN_FILENO);
+                close(fds[0]);
+                execvp(execArgs[0], execArgs.data());
+                _exit(127);
+            } else if (pid > 0) {
+                // parent: write rendered output into write end, then wait
+                close(fds[0]);
+                const char* data = out.data();
+                size_t remaining = out.size();
+                while (remaining > 0) {
+                    ssize_t n = write(fds[1], data, remaining);
+                    if (n <= 0) break;
+                    data += n;
+                    remaining -= static_cast<size_t>(n);
+                }
+                close(fds[1]);
+                int status;
+                waitpid(pid, &status, 0);
+            } else {
+                close(fds[0]);
+                close(fds[1]);
+                std::cout << out;
+            }
         } else {
             // fallback to stdout
             std::cout << out;
