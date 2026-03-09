@@ -44,7 +44,10 @@ Options:
 ```
 
 Notes:
-- This is a minimal implementation. It implements headings, paragraphs, lists, code fences, simple inline formatting (bold/italic/links), and image fallback text. It does not implement terminal inline images.
+
+- This is a minimal implementation. It implements headings, paragraphs, lists, code fences, simple inline formatting (bold/italic/links), tables, and image fallback text. It does not implement terminal inline images.
+
+- Invoking the binary as `mdless` implies the pager option.
 
 ## License
 
