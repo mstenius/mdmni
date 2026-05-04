@@ -94,8 +94,8 @@ void Renderer::processLine(const std::string& line, std::ostream& out) {
             insideCodeFences = false;
             out << "" << std::endl;
         } else {
-            if (useColor) out << textStyle(GREEN) << "  " << line << textStyleReset() << std::endl;
-            else out << "    " << line << std::endl;
+            if (useColor) out << textStyle(GREEN) << line << textStyleReset() << std::endl;
+            else out << line << std::endl;
         }
         return;
     }
